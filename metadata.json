@@ -1,0 +1,7 @@
+{
+  "name": "NexSched SaaS",
+  "description": "Uma plataforma SaaS multiempresa completa para agendamento, gestão de eventos e notificações automatizadas com poderes de IA.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
