@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { HashRouter, Routes, Route, Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { 
@@ -6,16 +5,16 @@ import {
   Menu, X, MessageCircle, BarChart, ChevronLeft, ChevronRight,
   Plus, Search, Briefcase, LayoutDashboard, LogOut, Copy, ExternalLink, Save,
   Moon, Sun, Trash2, Edit2, AlertCircle, Check, XCircle, Share2, Scissors,
-  User as UserIcon, CalendarCheck, Home, Lock, Mail, Phone, Loader2, AlertTriangle
+  User as UserIcon, CalendarCheck, Home, Lock, Mail, Phone, Loader2, AlertTriangle, Lightbulb
 } from 'lucide-react';
 import { BarChart as ReBarChart, Bar, XAxis, YAxis, Tooltip as ReTooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { generateWhatsAppMessage, analyzeFinancials } from './services/geminiService';
+// REPLACED: OpenAI Service
+import { generateWhatsAppMessage, analyzeFinancials } from './services/openaiService';
 import { 
   UserRole, Company, User, Service, Appointment, AppointmentStatus, FinancialRecord, FormField,
   WeeklySchedule, DayException, TimeSlot, ClientUser 
 } from './types';
 import { MOCK_COMPANIES, MOCK_USERS, MOCK_SERVICES, MOCK_APPOINTMENTS, MOCK_FINANCIALS, MOCK_WEEKLY_SCHEDULE, MOCK_EXCEPTIONS, MOCK_CLIENT_USERS } from './constants';
-import { supabase, isSupabaseConfigured } from './lib/supabaseClient'; 
 import { AuthView } from './components/AuthView';
 
 // --- GLOBAL STATE SIMULATION (CONTEXT) ---
@@ -35,6 +34,7 @@ interface AppState {
 
   currentUser: User | null;
   isLoadingAuth: boolean;
+  login: (email: string, role: UserRole) => void;
   logout: () => void;
   addAppointment: (appt: Appointment) => void;
   updateAppointmentStatus: (id: string, status: AppointmentStatus) => void;
@@ -69,108 +69,58 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentClient, setCurrentClient] = useState<ClientUser | null>(null);
 
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session && session.user) {
-          await fetchProfile(session.user.id, session.user.email || '');
-        } else {
-          setIsLoadingAuth(false);
-        }
-      } catch (error) {
-        console.error("Auth Check Error", error);
-        setIsLoadingAuth(false);
-      }
-    };
+    // Simulate checking local session on load
+    const storedUser = localStorage.getItem('nexsched_user');
+    const storedClient = localStorage.getItem('nexsched_client');
 
-    checkSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await fetchProfile(session.user.id, session.user.email || '');
-      } else {
-        setCurrentUser(null);
-        setCurrentClient(null);
-        setIsLoadingAuth(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    if (storedUser) {
+        setCurrentUser(JSON.parse(storedUser));
+    } else if (storedClient) {
+        setCurrentClient(JSON.parse(storedClient));
+    }
+    setIsLoadingAuth(false);
   }, []);
 
-  const fetchProfile = async (userId: string, email: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error || !data) {
-        // Fallback to Mock Logic if Supabase is not configured or profile missing
-        console.warn("Profile fetch failed or empty (Demo Mode active). Using Mock Data.");
-        
-        const mockUser = users.find(u => u.email === email);
-        if (mockUser) {
-           setCurrentUser(mockUser);
-        } else {
-           const mockClient = clientUsers.find(c => c.email === email);
-           if (mockClient) {
-             setCurrentClient(mockClient);
-           } else {
-             // Create temporary session user for demo
-             setCurrentClient({
-                id: userId,
-                name: email.split('@')[0],
-                email: email,
-                phone: '',
-                passwordHash: '',
-                createdAt: new Date().toISOString()
-             });
-           }
-        }
-        setIsLoadingAuth(false);
-        return;
-      } 
-      
-      // Real Data found
-      if (data.role === UserRole.CLIENT) {
-           setCurrentClient({
-             id: data.id,
-             name: data.name,
-             email: data.email,
-             phone: data.phone || '',
+  const login = (email: string, role: UserRole) => {
+     setIsLoadingAuth(true);
+     // Find in mocks or create dummy session
+     if (role === UserRole.CLIENT) {
+        const client = clientUsers.find(c => c.email === email) || {
+             id: `cli_${Date.now()}`,
+             name: email.split('@')[0],
+             email,
+             phone: '',
              passwordHash: '',
-             createdAt: data.created_at
-           });
-           setCurrentUser(null);
-      } else {
-           setCurrentUser({
-             id: data.id,
-             name: data.name,
-             email: data.email,
-             phone: data.phone || '',
-             role: data.role as UserRole,
-             companyId: data.company_id || undefined,
-           });
-           setCurrentClient(null);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoadingAuth(false);
-    }
+             createdAt: new Date().toISOString()
+        };
+        setCurrentClient(client);
+        localStorage.setItem('nexsched_client', JSON.stringify(client));
+     } else {
+        const user = users.find(u => u.email === email) || {
+            id: `usr_${Date.now()}`,
+            name: email.split('@')[0],
+            email,
+            phone: '',
+            role,
+            companyId: role === UserRole.COMPANY_ADMIN ? 'c1' : undefined // Assign demo company
+        };
+        setCurrentUser(user);
+        localStorage.setItem('nexsched_user', JSON.stringify(user));
+     }
+     setIsLoadingAuth(false);
   };
 
-  const logout = async () => {
-    await supabase.auth.signOut();
+  const logout = () => {
+    localStorage.removeItem('nexsched_user');
     setCurrentUser(null);
     setCurrentClient(null);
     window.location.href = "/";
   };
 
-  const clientLogout = async () => {
-    await logout();
+  const clientLogout = () => {
+    localStorage.removeItem('nexsched_client');
+    setCurrentClient(null);
+    logout();
   };
 
   const addAppointment = (appt: Appointment) => {
@@ -216,22 +166,17 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const updateClientProfile = (updatedClient: ClientUser) => {
       setClientUsers(prev => prev.map(c => c.id === updatedClient.id ? updatedClient : c));
       setCurrentClient(updatedClient);
+      localStorage.setItem('nexsched_client', JSON.stringify(updatedClient));
   }
 
   return (
     <AppContext.Provider value={{ 
       companies, users, services, appointments, financials, 
       weeklySchedules, dayExceptions, updateWeeklySchedule, updateDayException,
-      currentUser, isLoadingAuth, logout, addAppointment, updateAppointmentStatus,
+      currentUser, isLoadingAuth, login, logout, addAppointment, updateAppointmentStatus,
       addService, deleteService,
       clientUsers, currentClient, clientLogout, updateClientProfile
     }}>
-      {!isSupabaseConfigured && (
-        <div className="bg-orange-100 text-orange-800 text-xs font-bold p-2 text-center border-b border-orange-200 flex items-center justify-center">
-            <AlertTriangle size={14} className="mr-2"/>
-            MODO DEMONSTRAÇÃO: Banco de dados não configurado. Os dados não serão salvos permanentemente.
-        </div>
-      )}
       {children}
     </AppContext.Provider>
   );
@@ -882,7 +827,7 @@ const AppointmentsView: React.FC = () => {
                         <td className="px-6 py-4 flex space-x-2">
                              <button onClick={() => handleStatus(appt.id, AppointmentStatus.CONFIRMED)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Confirmar"><Check size={18}/></button>
                              <button onClick={() => handleStatus(appt.id, AppointmentStatus.CANCELLED)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Cancelar"><X size={18}/></button>
-                             <button onClick={() => generateMessage(appt)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Gerar Msg WhatsApp"><MessageCircle size={18}/></button>
+                             <button onClick={() => generateMessage(appt)} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="Gerar Msg WhatsApp (OpenAI)"><MessageCircle size={18}/></button>
                         </td>
                     </tr>
                 ))}
@@ -898,7 +843,7 @@ const FinanceView: React.FC = () => {
   const [analysis, setAnalysis] = useState('');
   
   const handleAnalyze = async () => {
-      setAnalysis("Analisando...");
+      setAnalysis("Analisando com OpenAI (gpt-4o-mini)...");
       const result = await analyzeFinancials(myFin);
       setAnalysis(result);
   }
@@ -908,7 +853,7 @@ const FinanceView: React.FC = () => {
           <div className="flex justify-between items-center">
                <h2 className="text-xl font-bold text-slate-800">Financeiro</h2>
                <button onClick={handleAnalyze} className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center">
-                   <BarChart size={16} className="mr-2"/> Analisar com IA
+                   <Lightbulb size={16} className="mr-2"/> Analisar com IA
                </button>
           </div>
           {analysis && (
@@ -1132,7 +1077,7 @@ const LandingPage: React.FC = () => {
                     <Calendar size={48} className="text-white" />
                 </div>
                 <h1 className="text-5xl font-extrabold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">NexSched</h1>
-                <p className="text-slate-400 text-xl mb-12">A Plataforma Definitiva de Agendamento Multiempresa com IA</p>
+                <p className="text-slate-400 text-xl mb-12">A Plataforma Definitiva de Agendamento Multiempresa com IA (OpenAI Powered)</p>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mx-auto">
                     <button 
@@ -1233,7 +1178,13 @@ const AuthRedirectHandler = () => {
 const AuthPageWrapper = ({ mode, role }: { mode?: 'login'|'register', role?: UserRole }) => {
     const location = useLocation();
     const stateRole = location.state?.role;
-    return <AuthView initialMode={mode || 'login'} forcedRole={role || stateRole} />;
+    const { login } = useApp();
+    
+    return <AuthView 
+              initialMode={mode || 'login'} 
+              forcedRole={role || stateRole} 
+              onLoginSuccess={(email, role) => login(email, role)}
+           />;
 };
 
 export default App;

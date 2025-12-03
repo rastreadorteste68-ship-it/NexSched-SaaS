@@ -1,16 +1,16 @@
-
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Lock, User as UserIcon, Loader2, Briefcase, Settings } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, Loader2, Briefcase } from 'lucide-react';
 import { UserRole } from '../types';
+import { MOCK_USERS, MOCK_CLIENT_USERS } from '../constants';
 
 interface AuthViewProps {
   initialMode?: 'login' | 'register';
   forcedRole?: UserRole; // If user enters via specific route
+  onLoginSuccess: (email: string, role: UserRole) => void;
 }
 
-export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login', forcedRole }) => {
+export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login', forcedRole, onLoginSuccess }) => {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,63 +22,40 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login', force
   const [name, setName] = useState('');
   const [role, setRole] = useState<UserRole>(forcedRole || UserRole.CLIENT);
   
-  // Registration specific: Company Name (if creating a company admin)
-  const [companyName, setCompanyName] = useState('');
-
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
+    // Simulate Network Delay
+    await new Promise(resolve => setTimeout(resolve, 800));
+
     try {
       if (mode === 'login') {
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // MOCK LOGIN LOGIC
+        // In a real app with OpenAI backend, this would call your API Route
+        
+        let userFound = MOCK_USERS.find(u => u.email === email);
+        let clientFound = MOCK_CLIENT_USERS.find(u => u.email === email);
 
-        if (authError) throw authError;
-
-        // Redirect logic is handled by AppProvider onAuthStateChange, 
-        // but we can force a check or navigation here if needed.
-        // The AppProvider will detect the session change and route accordingly.
+        if (userFound) {
+           // Password check skipped for mock (accept any password for demo)
+           onLoginSuccess(userFound.email, userFound.role);
+        } else if (clientFound) {
+           onLoginSuccess(clientFound.email, UserRole.CLIENT);
+        } else {
+           // For demo purposes, if user doesn't exist in mock constants, we allow login if it looks like a valid format
+           // treating it as a new session
+           if (email.includes('@')) {
+              onLoginSuccess(email, role); 
+           } else {
+              throw new Error("Usuário não encontrado.");
+           }
+        }
 
       } else {
-        // REGISTER
-        const { data, error: authError } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-
-        if (authError) throw authError;
-
-        if (data.user) {
-          // Insert into Profiles
-          // NOTE: In a real app, use a Database Trigger for security. 
-          // Here we do client-side insertion as requested.
-          
-          const profileData = {
-            id: data.user.id,
-            email: email,
-            name: name,
-            role: role,
-            company_id: role === UserRole.COMPANY_ADMIN ? `comp_${Date.now()}` : null // Generate a mock ID or handle company creation properly
-          };
-
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert([profileData]);
-
-          if (profileError) {
-             // Rollback or warn
-             console.error("Profile creation failed", profileError);
-             throw new Error("Erro ao criar perfil de usuário.");
-          }
-
-          if (role === UserRole.COMPANY_ADMIN) {
-             // Create company entry if needed (Mocking this step for now as it usually requires a separate flow)
-          }
-        }
+        // MOCK REGISTER LOGIC
+        onLoginSuccess(email, role);
       }
     } catch (err: any) {
       setError(err.message || "Ocorreu um erro.");
